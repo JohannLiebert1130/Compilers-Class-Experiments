@@ -20,6 +20,17 @@ action code {:
     AbstractSymbol curr_filename() {
 	return ((CoolTokenLexer)parser.getScanner()).curr_filename();
     }
+
+	let createLet(int line_no, Features features, Expression e, int counter){
+    	if(counter == features.getLength()-1){
+    		return new let(curr_lineno(), ((attr) features.getNth(counter)).name, ((attr) features.getNth(counter)).type_decl,
+    			((attr) features.getNth(counter)).init, e);
+    	}else {
+    		return new let(curr_lineno(), ((attr) features.getNth(counter)).name, ((attr) features.getNth(counter)).type_decl,
+    			((attr) features.getNth(counter)).init, createLet(line_no, features, e, ++counter));
+    	}
+    }
+
 :}
 
 /************************************************************************/
@@ -49,6 +60,7 @@ parser code {:
 token ERROR is never used in the parser; thus, it is a parse error when
 the lexer returns it.  */
 
+
 terminal CLASS, ELSE, FI, IF, IN, INHERITS, LET, LET_STMT, LOOP, POOL, THEN, WHILE;
 terminal CASE, ESAC, OF, DARROW, NEW, ISVOID;
 terminal ASSIGN, NOT, LE, ERROR;
@@ -68,51 +80,37 @@ nonterminal programc program;
 nonterminal Classes class_list;
 nonterminal class_c class;
 
-nonterminal Inheritance inheritance;
-
 nonterminal Features feature_list;
-nonterminal Features feature_list_opt;
-nonterminal Feature feature;
+nonterminal Features feature_list_opt, let_attr_list;
 
-nonterminal Attribute attribute;
-nonterminal Assign assign_opt;
-
-nonterminal Method method;
-nonterminal Formals formal_list_opt;
-nonterminal Formals formal_list;
-nonterminal Formal formal;
-
-nonterminal Expression expression;
-
-
-nonterminal Constant constant;
-nonterminal Dispatch dispatch;
-nonterminal Expressions expression_list;
-nonterminal Expressions expressions;
-nonterminal Expression let_expression;
-nonterminal Lets nest_lets;
-
-nonterminal Expression case_expression;
-nonterminal cases cases;
-nonterminal cases case_branch;
-nonterminal Arith arith;
-nonterminal Comp comp;
+nonterminal Expression expr;
+nonterminal Expressions actuals, exp_list, blk_expr;
+nonterminal Feature feature, let_attr;
+nonterminal Formals optional_formal_list;
+nonterminal formalc formal;
+nonterminal Cases case_list;
+nonterminal Case case;
 
 /* Precedence declarations go here. */
+/* Order is lowest precedence top and highest predence bottom */
 precedence right ASSIGN;
-precedence left NOT;
+precedence right NOT;     /*doc didn't specify, so guessing */
 precedence nonassoc LE, LT, EQ;
-precedence left MINUS, PLUS;
+precedence left PLUS, MINUS;
 precedence left MULT, DIV;
-precedence left ISVOID;
-precedence left NEG;
-precedence left AT;
-precedence left DOT;
+precedence right ISVOID;  /*doc didn't specify, so guessing */
+precedence right NEG;     /*doc didn't specify, so guessing */
+precedence nonassoc AT;   /*doc didn't specify, so guessing */
+precedence left DOT;      /*doc didn't specify, so guessing */
 
 
 program
 	::= class_list:cl
 	    {: RESULT = new programc(curr_lineno(), cl); :}
+		| error
+	    {: //System.err.println("Reached program error production");
+	    	RESULT = new programc(curr_lineno(),
+                                     new Classes(curr_lineno())); :}
         ;
 
 class_list
@@ -126,16 +124,212 @@ class_list
 
 /* If no parent is specified, the class inherits from the Object class */
 class
-	::= CLASS TYPEID:n inheritance LBRACE feature_list_opt:f RBRACE SEMI
+	::= CLASS TYPEID:n LBRACE feature_list_opt:f RBRACE SEMI
 	    {: RESULT = new class_c(curr_lineno(), n,
 		                   AbstractTable.idtable.addString("Object"),
 				   f, curr_filename()); :}
 	| CLASS TYPEID:n INHERITS TYPEID:p LBRACE feature_list_opt:f RBRACE SEMI
 	    {: RESULT = new class_c(curr_lineno(), n, p, f, curr_filename()); :}
+	| error SEMI
+	    {: //System.err.println("Reached program error production");
+	    	RESULT = new class_c(curr_lineno(), AbstractTable.idtable.addString("Object"),
+	    		                  AbstractTable.idtable.addString("Object"),
+	    		                  new Features(curr_lineno()), curr_filename()); :}
 	;
 
 /* Feature list may be empty, but no empty features in list. */
-dummy_feature_list
+feature_list_opt
 	::= /* empty */
 	    {: RESULT = new Features(curr_lineno()); :}
+	| feature_list:f
+		{: RESULT = f; :}
+	;
+
+feature_list
+	/* single feature */
+	::= feature:f
+		{:
+			RESULT = new Features(curr_lineno()).appendElement(f);:}
+	/* several features */
+	| feature_list:fl feature:f
+		{:
+			RESULT = fl.appendElement(f); :}
+	;
+
+/* features */
+feature
+	::= OBJECTID:o LPAREN optional_formal_list:ofl RPAREN COLON TYPEID:t LBRACE expr:e RBRACE SEMI
+		{: //System.err.println("Reached method production");
+			RESULT = new method(curr_lineno(), o, ofl, t, e);:}
+	|	OBJECTID:o COLON TYPEID:t ASSIGN expr:e SEMI
+		{: //System.err.println("Reached first attr feature production");
+			RESULT = new attr(curr_lineno(), o, t, e);:}
+	| OBJECTID:o COLON TYPEID:t SEMI
+		{: //System.err.println("Reached second attr feature production");
+			RESULT = new attr(curr_lineno(), o, t, new no_expr(curr_lineno()));:}
+	| error SEMI
+	    {: //System.err.println("Reached program error production");
+	    	RESULT = new attr(curr_lineno(), AbstractTable.idtable.addString("self"),
+	    		                  AbstractTable.idtable.addString("Object"),
+	    		                  new no_expr(curr_lineno())); :}
+	;
+
+let_attr
+	::= OBJECTID:o COLON TYPEID:t ASSIGN expr:e
+		{: //System.err.println("Reached first attr feature production");
+			RESULT = new attr(curr_lineno(), o, t, e);:}
+	| OBJECTID:o COLON TYPEID:t
+		{: //System.err.println("Reached second attr feature production");
+			RESULT = new attr(curr_lineno(), o, t, new no_expr(curr_lineno()));:}
+	| error
+	    {: //System.err.println("Reached program error production");
+	    	RESULT = new attr(curr_lineno(), AbstractTable.idtable.addString("self"),
+	    		                  AbstractTable.idtable.addString("Object"),
+	    		                  new no_expr(curr_lineno())); :}
+	;
+
+/* formal lists and formals */
+optional_formal_list
+	/* single formal */
+	::= formal:f
+		{: //System.err.println("Reached first formal list production");
+			RESULT = new Formals(curr_lineno()).appendElement(f);:}
+	/* several formals */
+	| optional_formal_list:ofl COMMA formal:f
+		{: //System.err.println("Reached second formal list production");
+			RESULT = ofl.appendElement(f);:}
+	/* no formals */
+	| /* empty */
+		{: RESULT = new Formals(curr_lineno());:}
+	;
+
+/* formals */
+formal
+	::= OBJECTID:o COLON TYPEID:t
+		{:  //System.err.println("Reached formal production");
+			RESULT = new formalc(curr_lineno(), o, t);:}
+    //| error COLON TYPEID:t | OBJECTID:o COLON error | error COLON error
+	//    {: //System.err.println("Reached program error production");
+	//    	RESULT = new attr(curr_lineno(), AbstractTable.idtable.addString("self"),
+	//    		                  AbstractTable.idtable.addString("Object"),
+	//    		                  new no_expr(curr_lineno())); :}
+	;
+
+/* Expressions */
+expr
+	::= OBJECTID:o ASSIGN expr:e
+	    {: RESULT = new assign(curr_lineno(), o, e); :}
+	| expr:e DOT OBJECTID:o actuals:a
+	    {: RESULT = new dispatch(curr_lineno(), e, o, a); :}
+	| expr:e AT TYPEID:t DOT OBJECTID:o actuals:a
+	    {: RESULT = new static_dispatch(curr_lineno(), e, t, o, a); :}
+	| IF expr:e1 THEN expr:e2 ELSE expr:e3 FI
+	    {: RESULT = new cond(curr_lineno(), e1, e2, e3);:}
+	| WHILE expr:e1 LOOP expr:e2 POOL
+	    {: RESULT = new loop(curr_lineno(), e1, e2);:}
+	| LBRACE blk_expr: e RBRACE 
+	    {: RESULT = new block(curr_lineno(), e); :}
+	| LET let_attr_list:l IN expr:e
+		{: RESULT = createLet(curr_lineno(), l, e, 0); :}
+	| CASE expr:e OF case_list:c ESAC 
+	    {: RESULT = new typcase(curr_lineno(), e, c); :}
+	| NEW TYPEID:t
+	    {: RESULT = new new_(curr_lineno(), t);:}
+	| ISVOID expr:e
+	    {: RESULT = new isvoid(curr_lineno(), e);:}
+	| expr:e1 PLUS expr:e2
+	    {: RESULT = new plus(curr_lineno(), e1, e2); :}
+	| expr:e1 MINUS expr:e2
+	    {: RESULT = new sub(curr_lineno(), e1, e2); :}
+	| expr:e1 MULT expr:e2
+	    {: RESULT = new mul(curr_lineno(), e1, e2); :}
+	| expr:e1 DIV expr:e2
+	    {: RESULT = new divide(curr_lineno(), e1, e2); :}
+	| NEG expr:e
+	    {: RESULT = new neg(curr_lineno(), e); :}
+	| expr:e1 LT expr:e2
+	    {: RESULT = new lt(curr_lineno(), e1, e2); :}
+	| expr:e1 EQ expr:e2
+	    {: RESULT = new eq(curr_lineno(), e1, e2); :}
+	| expr:e1 LE expr:e2
+	    {: RESULT = new leq(curr_lineno(), e1, e2); :}
+	| NOT expr:e
+	    {: RESULT = new comp(curr_lineno(), e); :}
+	| LPAREN expr:e RPAREN
+	    {: RESULT = e; :}
+	| INT_CONST:i
+	    {: RESULT = new int_const(curr_lineno(), i); :}
+	| STR_CONST:s
+	    {: RESULT = new string_const(curr_lineno(), s); :}
+	| BOOL_CONST:b
+	    {: RESULT = new bool_const(curr_lineno(), b); :}
+	| OBJECTID:o
+	    {: RESULT = new object(curr_lineno(), o); :}
+	| OBJECTID:n actuals:a
+	    {: RESULT = new dispatch(curr_lineno(),
+	                             new object(curr_lineno(), 
+	                                        AbstractTable.idtable.addString("self")),
+				     n, a); :}
+        ;
+
+/* Optional Helper Expressions for expressions*/
+
+/* let subexpression */
+let_attr_list
+	::= let_attr:f
+		{: //System.err.println("Reached first feature list production");
+			RESULT = new Features(curr_lineno()).appendElement(f);:}
+	/* several features */
+	| let_attr_list:ltl COMMA let_attr:f
+		{: //System.err.println("Reached second feature list production");
+			RESULT = ltl.appendElement(f); :}
+	;
+
+
+
+/* list of one or more expressions for block */
+blk_expr
+    ::= expr:e SEMI
+        {: RESULT = new Expressions(curr_lineno()).appendElement(e); :}
+    | blk_expr:b expr:e SEMI
+        {: RESULT = b.appendElement(e); :}
+    | error SEMI
+	    {: //System.err.println("Reached program error production");
+	    	RESULT = new Expressions(curr_lineno()); :}
+    ;
+
+/* Cases */
+case_list
+        /* One Case */
+    ::= case:c
+        {: RESULT = new Cases(curr_lineno()).appendElement(c); :}
+    | case_list:c1 case:c2
+        {: RESULT = c1.appendElement(c2); :}
+    ;
+
+/* Case Non-Terminal */
+case
+    ::= OBJECTID:o COLON TYPEID:t DARROW expr:e SEMI
+        {: RESULT = new branch(curr_lineno(), o, t, e); :}
+    ;
+
+/* Method arguments */
+actuals
+        /* No arguments */
+	::= LPAREN RPAREN
+	    {: RESULT = new Expressions(curr_lineno()); :}
+        /* List of arguments */
+	| LPAREN exp_list:el RPAREN
+	    {: RESULT = el; :}
+	;
+
+
+/* Non-empty list of expressions */
+exp_list
+        /* One expression */
+	::= expr:e
+	    {: RESULT = (new Expressions(curr_lineno())).appendElement(e); :} 
+        /* Several expressions */
+	| exp_list:el COMMA expr:e
+	    {: RESULT = el.appendElement(e); :}
 	;
