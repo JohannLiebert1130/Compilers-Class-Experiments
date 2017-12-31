@@ -107,7 +107,7 @@ precedence left DOT;      /*doc didn't specify, so guessing */
 program
 	::= class_list:cl
 	    {: RESULT = new programc(curr_lineno(), cl); :}
-		| error
+	| error
 	    {: //System.err.println("Reached program error production");
 	    	RESULT = new programc(curr_lineno(),
                                      new Classes(curr_lineno())); :}
