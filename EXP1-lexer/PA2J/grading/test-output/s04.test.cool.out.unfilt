@@ -1,0 +1,8 @@
+#name "./s04.test.cool"
+#2 INT_CONST 0
+#4 INT_CONST 1
+#6 INT_CONST 2
+#9 INT_CONST 3
+#11 INT_CONST 4
+#12 ERROR "\013"
+#13 INT_CONST 5
