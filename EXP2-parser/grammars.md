@@ -1,3 +1,4 @@
+```
 <program> ::= <class_list>
 <class_list> ::= <class_list> <class>
 | <class>
@@ -73,3 +74,4 @@
 | <expression> LE <expression>
 | <expression> EQ <expression>
 | NOT <expression>
+```
